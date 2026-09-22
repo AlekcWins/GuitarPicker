@@ -26,8 +26,11 @@ Browsers block ES-module loading over `file://`, so serve the folder. Any of:
 - `powershell -ExecutionPolicy Bypass -File .\serve.ps1` (zero-dep PowerShell server)
 - `python -m http.server 8080`
 - `npx serve`
+- `docker build -t guitarpicker . && docker run --rm -p 8080:8080 guitarpicker` — build +
+  verification suite + server all run inside the container, isolated from the host Node/npm
+  install. See [docs/DOCKER.md](docs/DOCKER.md).
 
-Then open `http://localhost:8080` (the Node/PowerShell servers print their URL).
+Then open `http://localhost:8080` (the Node/PowerShell/Docker servers print/serve on that URL).
 
 ### Verification harness (Node)
 Run `npm test` (or the scripts individually). These run without a browser:
@@ -69,6 +72,9 @@ src/
   karaoke/            Shared karaoke engine (UI-agnostic)
     timeline.js       buildLyricTimeline / activeAt — word-level fill + auto-distribution
     grader.js         Shared octave-agnostic note grader (instrument play + vocal scoring)
+  learn/              Learn-mode engine (UI-agnostic, state-agnostic — see ui/timeline.js for
+                      its visual half)
+    learn-mode.js     createLearnMode(): segment slicing + the per-segment speed ramp
   views/
     home.js           Dashboard
     play.js           Note highway gameplay (grading, healthbar, killfeed)
@@ -93,12 +99,16 @@ src/
   ui/
     components.js     Small shared render helpers (el builder, sliders, charts, toasts)
     backgrounds.js    Canvas song backgrounds (solid / animated / slideshow)
+    timeline.js       createTimeline(): drag-to-select/click-to-seek canvas scrubber, with an
+                      optional fixed-segment overlay (used by Play's practice segment + Learn mode)
   cloud/
     config.js         Sync config (built-in OAuth client id + origin allowlist)
     merge.js          Pure merge of two sync payloads (union content, LWW coins) — tested
     sync.js           Google Drive appData sync (GIS token + Drive REST via fetch; no SDK)
 serve.mjs             Zero-dependency Node static server
 serve.ps1             Zero-dependency PowerShell static server (Windows)
+Dockerfile            Isolated build (runs the verification suite) + serve
+docker-compose.yml    `docker compose up` convenience wrapper
 package.json          Scripts: `serve`, `test`
 check-imports.cjs     Verification: import graph
 test-core.mjs         Verification: music/audio core + pitch detector
@@ -207,6 +217,21 @@ play continues. Killfeed shows the last several note judgments with note name + 
 - [x] Synthesized backing band (per-instrument voices, generated bass/comp/drums, multi-part
       arrangements) — no audio assets needed
 - [ ] Bundled audio assets for backing tracks (user-imported only by default)
+- [x] Practice-speed control (Play + Karaoke): slow down or speed up a song (25%–125%) without
+      changing pitch — scales backing/vocal audio, the synth band, note/lyric timing and grading
+      windows together
+- [x] Strict "repeat till right" practice mode (Play): a missed/off note freezes the transport
+      exactly on it — nothing already played gets replayed — and waits until it's hit correctly,
+      then eases back up to speed; no score/health penalty while waiting
+- [x] Fretboard string labels (Play + Tuner): note names or player-facing numbers (1–6, high to
+      low), picked in Settings
+- [x] Fretboard/holes display size (Play): a ⚙ button next to 🎸 Frets cycles Small/Medium/Large
+- [x] Vegas-style practice timeline (Play): drag to select a segment, click to seek, playhead
+      moves live — replaces manual start/end marking
+- [x] Learn mode (Play): a separate component (`src/learn/learn-mode.js`) that auto-slices the
+      song into 4-bar segments shown on the timeline, starts each at 50% speed and loops it,
+      bumping speed +10% on every clean (≥85%) pass up to full speed; ◀/▶ moves between segments
+- [x] Isolated Docker build + run (`Dockerfile`, `docker-compose.yml`) — see docs/DOCKER.md
 
 ## Known limitations
 - Pitch detection is monophonic; chord *playing* is graded by chord-tone matching and
@@ -326,3 +351,112 @@ play continues. Killfeed shows the last several note judgments with note name + 
   every skin has a `[data-theme]` block, that every block belongs to a skin, that all themes
   define the same variable set as the default, and that each `swatch` matches the theme's own
   `--bg`/`--accent`/`--accent-2` — a skin listed without CSS renders unstyled and throws nothing.
+- **Isolated Docker build + run:** added a `Dockerfile` (copies the repo into `node:22-alpine`,
+  runs the full verification suite as the image build — a red suite fails the build the same way
+  the CI workflow does — then serves via `serve.mjs` as the non-root `node` user) and a
+  `docker-compose.yml` convenience wrapper. No dependencies are installed from the network beyond
+  the base image; the container is served on `localhost`, so mic access still works from the
+  browser. Documented in `docs/DOCKER.md` (build/run/compose/test-only/dev-mount) and linked from
+  the README quick start and this doc's "Running it" section. Verified locally: image builds
+  clean (all checks green inside the build), and a running container serves `index.html` and
+  `src/app.js` with HTTP 200.
+- **Practice-speed control (tempo trainer):** added a `playbackSpeed` setting (default 100%) and
+  a "Speed" slider (25%–125%, widened from an initial 50%–125% floor for very slow practice) in
+  the Play and Karaoke control bars. `TrackPlayer.setSpeed()` sets
+  `playbackRate` (+ `preservesPitch`/vendor-prefixed variants) on the backing/vocal `<audio>`
+  elements, so a slowed-down song keeps its original key. `Band.schedule(clock, rate)` now
+  converts song-time deltas to real seconds via `/rate` (and scales its look-ahead horizon by
+  `rate`) so the synthesized band stays sample-accurate at any speed; the default `rate = 1`
+  reproduces the exact prior scheduling math, so it's a backward-compatible signature change.
+  Each view's game loop advances its transport clock by `dt * rate` when not synced to backing
+  audio (the audio-synced branch already reflects the rate via the element's own `currentTime`).
+  Because grading windows, the note highway, and the metronome are all driven by the same
+  transport clock, slowing the song down widens the real-time hit window and slows the highway
+  scroll, count-in and metronome together — no separate scaling needed. Distinct from the
+  pre-existing `noteSpeed` setting, which only scales the highway's visual scroll density and
+  never touches timing. test-core's Band scheduler checks (148 total) verified unaffected by the
+  signature change; a standalone rate-math check confirmed a half-speed note is queued exactly
+  twice as far out in real time and stays outside the look-ahead window until the (rate-scaled)
+  horizon reaches it.
+- **Strict "repeat till right" practice mode:** added a `strictMode` setting and a "☑ Repeat till
+  right" toggle button to the Play control bar (same on/off convention as 🎺 Band / 🔊 Notes / 🎸
+  Frets — highlighted when active). In `finalize(n)`, a note that would grade "off" or "miss"
+  is, under strict mode, not finalized at all: `retry(n)` resets the note back to `pending`,
+  rewinds the transport clock to `RETRY_LEAD` (0.5s) before the note — capped at the previous
+  note's end, so closely-spaced notes only back up "one step" rather than through several already-
+  played notes — and seeks the backing/vocal audio and the synth band to match, so everything —
+  highway, audio, and accompaniment — visibly rewinds together. `soundIdx` is rewound to the
+  note's own index so its preview sound re-fires, and `lastMetroBeat` is re-synced so the
+  metronome doesn't double-click on the jump back. Failed attempts under strict mode skip
+  `applyJudgment` entirely (no health/score/killfeed change) — only a clean "good"/"perfect" pass
+  finalizes and counts. A toast nudges the player on each rewind. Off by default; persists via
+  `Store.setSetting` like the other Play toggles. Karaoke's vocal grading (a continuous
+  lyric-line stream via the shared `Grader`, not discrete gated notes) doesn't have an equivalent
+  yet. *(Tuned down from an initial 1.2s lead after it was reported as rewinding too far.)*
+- **String label style, fretboard size, practice segments, and Learn mode:** four Play/Tuner
+  additions in one pass. (1) `stringLabel(instrument, strings, index, style)` (`music/notes.js`)
+  returns either the existing `STRING_LABELS` note name or a player-facing string number — by
+  guitar/bass convention, 1 is the highest-pitched string, counting up to the lowest, i.e. the
+  reverse of the low-to-high `strings` array — driven by a new `stringLabels` setting ("notes" /
+  "numbers", a Settings dropdown); wired into Play's `drawFretboard` and the Tuner's string chips.
+  (2) A `fretboardSize` setting (S/M/L) and a "⚙ M" button next to 🎸 Frets cycle the fretboard/
+  holes strip's size — `drawFretboard`/`drawHoles` now scale every size-bearing constant (panel,
+  cell, dot radius, fonts) by a `FRET_SCALE` factor instead of using fixed pixel values.
+  (3) A practice-segment picker: `⏺ Start` / `⏹ End` mark `[segStart, segEnd)` at the current
+  playhead, `🔁 Loop` repeats it, `✕` clears back to the full song; a shared `rewindTo(target)`
+  (seeks audio, band, note states, `soundIdx` and the metronome beat together) now backs both
+  this and strict-mode's `retry()`. (4) Learn mode (`🎓`): `buildLearnSegments()` slices the song
+  into fixed 4-bar (16-beat) segments; entering one seeks to it, forces the loop on, and drops
+  `rate` to 50%. Each time a looped pass reaches the segment end, `evaluateSegmentPass()` scores
+  that pass from a segment-local `segCounts` tally (tracked in `applyJudgment` alongside the
+  existing global `counts`, only while `learnMode` is on) — a clean pass (≥85%) bumps `rate` by
+  +10% (capped at 100%) and updates the speed slider via `setValue`; at full speed it just tells
+  you to move on. `◀`/`▶` step between segments, each restarting at 50%. Second `.play-controls`
+  row added to the Play view for these; `restart()` now rewinds to the segment start instead of
+  the song start whenever a loop is active. None of this touches Karaoke or persists to History —
+  segment/Learn drilling never reaches `finish()`, so it can't corrupt a saved run.
+  *(Superseded by the next entry: the button-based start/end marking became a draggable
+  timeline, and Learn mode moved into its own module.)*
+- **Vegas-style practice timeline, Learn mode as a real component, and a retry slowdown:** three
+  follow-ups to the segment/Learn-mode work above. (1) `ui/timeline.js` (`createTimeline`): a
+  canvas scrubber — click to seek, click-drag to select a range, playhead drawn live, with an
+  optional fixed-segment overlay (ticks + an active-segment highlight) for Learn mode. Replaces
+  the `⏺ Start`/`⏹ End` buttons in Play; `applySegment`/`rewindTo` now also push to
+  `timeline.setSelection`/`setPlayhead`, and the timeline goes read-only (`setInteractive(false)`)
+  while Learn mode owns segment selection. (2) Learn mode moved out of `play.js` entirely into
+  `src/learn/learn-mode.js` (`createLearnMode`) — a UI- and state-agnostic controller (mirroring
+  how `karaoke/grader.js`/`timeline.js` sit behind the Karaoke view) that owns segment slicing,
+  the current index, its own pass-accuracy tally, and the speed ramp, driven purely through a
+  `host` callback object (`applySegment`, `rewindTo`, `getRate`/`setRate`, `setLoop`, `toast`) —
+  no closures over Play's internals. `play.js` now just instantiates it and forwards
+  `learn.record(quality, noteTime)` from `applyJudgment` and `learn.evaluatePass()` from the
+  segment-loop check. (3) Strict mode's `retry()` now calls `startRetrySlowdown()`: rather than
+  snapping straight back to full speed, a new `effRate` (the rate that actually drives the clock
+  and `band.schedule`, vs. `rate`, the player's chosen speed) dips to ~55% of `rate` for 1.1s then
+  eases back to `rate` over 0.6s, each frame in `loop()` — giving a beat to actually see which
+  note was missed before the retry starts for real; because grading windows are defined in
+  song-time, the dip also makes that first retry attempt's hit window proportionally more
+  forgiving in real time, for free. `applyRate(v)` (slider input, and Learn's `setRate` callback)
+  cancels any in-progress dip and sets both `rate` and `effRate` together. Fixed a
+  `ResizeObserver`-triggered TDZ crash in `timeline.js` (the observer fired `draw()`, which read
+  `tToX`, before that `const` was initialized — surfaced by dom-smoke, which invokes
+  `ResizeObserver` callbacks synchronously) by reordering the helper declarations. test suite
+  unchanged at 148/48/23 (Play's own grading loop isn't unit-tested — dom-smoke only mounts it).
+  *(Superseded by the next entry: the slow-motion rewind-and-replay became a hard freeze.)*
+- **Strict mode reworked: freeze-and-wait instead of rewind-and-replay.** The dip-then-ease
+  slowdown above still replayed a stretch of already-correct material on every retry (rewound to
+  `RETRY_LEAD` before the note, then resumed forward playback through it, just slower) — reported
+  as rewinding too far in a different way: it re-plays music you already got right. `retry(n)`
+  now calls `rewindTo(n.time)` — no lead-in — then explicitly `player.pause()` + `band.silence()`
+  and sets `waitingFor = n`; nothing plays while frozen. `loop()` gains an early branch: while
+  `waitingFor` is set, the transport clock doesn't advance and the normal grading/scheduling body
+  is skipped entirely, but a new `readPitch()` (extracted from the loop body so both branches
+  share it) and `checkWaitingPitch()` keep listening every frame. Any in-tune match resolves it
+  (octave-agnostic cents check, reusing `finalize()`'s thresholds: ≤`PERFECT_CENTS` is "perfect",
+  else "good"; for percussion, any onset counts, mirroring `grade()`'s existing "any drum voice
+  counts" rule) via `resolveWait(n, q)`, which finalizes the note through the normal
+  `applyJudgment` path, resumes the player, and calls `beginTempoRamp()` (renamed from
+  `startRetrySlowdown`, and simplified — the "hold at the dipped rate" phase is gone since the
+  freeze itself already gave unlimited look time; it now eases from ~55% up to `rate` over 0.6s
+  immediately) so the resume isn't a jump cut. `RETRY_LEAD` and the hold-duration constant are
+  gone. test suite unaffected (148/48/23) — this is all inside Play's un-unit-tested grading loop.

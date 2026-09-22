@@ -27,3 +27,30 @@
 -graphics should be very clean and crisp throughout
 -needs to be constantly clear what input and output devices are used
 -need to be able to select various themes
+-need an isolated Docker build/run: build + verification suite + the static
+	server all execute inside the container, no host Node/npm install required
+-need option to slow down (and speed up) song playback for practice, without
+	changing pitch — affects the backing/vocal audio, the synthesized band, the
+	note highway timing, and grading windows together, not just visual scroll
+-need an optional "strict" practice mode (checkbox toggle) in Play: a missed
+	or fumbled note rewinds the song to just before it and repeats it until
+	played correctly, with no health/score penalty for the failed attempts —
+	only a clean pass finalizes and counts
+	-the rewind must be short (back up one note, not several seconds)
+	-don't replay music that was already played correctly — freeze exactly on
+	 the missed note and wait there (nothing plays) until it's hit right, then
+	 ease back up to normal speed rather than snapping straight to it
+-need a settings option for how fretboard strings are labelled: note names
+	(E A D G B e) or numbers (1-6)
+-need a way to resize the fretboard/fingering display from the Play controls
+-need the ability to pick an arbitrary segment of a song myself and loop it
+	for practice, not just play the whole song top to bottom
+	-selection should be a visible timeline I can drag on, like a video editor
+	 (Sony Vegas etc), not just "mark start/end at the current position"
+-need a guided "Learn this song" mode: the song is split into segments, and I
+	practice each one at a slow speed, gradually speeding it up as I get it
+	right, before moving to the next segment
+	-Learn mode should be its own separate component (not wedged into the Play
+	 view's code) so it can keep growing on its own
+	-Learn mode uses the same timeline, showing segment boundaries + which one
+	 is active
