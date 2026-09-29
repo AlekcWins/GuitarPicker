@@ -1,5 +1,11 @@
 # Running GuitarPicker in Docker
 
+> This covers the deployed vanilla app (root of the repo). The separate
+> `web/` project — the FSD/Next.js/TanStack Query/TypeScript pilot — has its
+> own Dockerfile and runs on a different port (`:3000` vs. this app's `:8080`);
+> see [web/README.md](../web/README.md#docker). `docker compose up` (using
+> the root `docker-compose.yml`) brings both up together.
+
 GuitarPicker has zero npm dependencies, so the Docker image just copies the
 static app in, runs the same verification suite CI runs, and serves it with
 the zero-dependency Node server (`serve.mjs`). Nothing is installed from the

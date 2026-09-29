@@ -141,3 +141,7 @@ or audio are bundled. See **[CREDITS.md](./CREDITS.md)** for per-song provenance
 ## Architecture
 
 See **[Design.md](./Design.md)** for architecture, the song file format, and known limitations.
+
+There's also an experimental **[`web/`](./web) pilot** — the same app rebuilt on Feature-Sliced
+Design + Next.js + TanStack Query + TypeScript, covering everything above except Locker. It's not
+the deployed app (this root project stays zero-dependency/zero-build); see [web/README.md](./web/README.md).

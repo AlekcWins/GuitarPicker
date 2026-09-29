@@ -625,14 +625,30 @@ export default async function play(ctx) {
   }
   // fretboard strip: dots for the current (or next) note's fingering
   const FRET_SCALE = { S: 0.78, M: 1, L: 1.3 };
+  // Standard fretboard inlay positions (single dots, 12th doubled) — used
+  // both for the numeric labels below the diagram's neck and the actual
+  // inlay dots drawn on it. No 24: real necks mark up to 21 (sometimes a
+  // double dot at 24 on extended-range instruments, but that's the
+  // exception, not the convention this list should default to).
+  const FRET_MARKERS = [3, 5, 7, 9, 12, 15, 17, 19, 21];
   function drawFretboard(t) {
     const cur = notes.find((n) => n.frets && t <= n.time + n.dur);
     if (!cur) return;
     const sc = FRET_SCALE[fretSize] || 1;
     const now = t >= cur.time - 0.05;
     const nStr = inst.strings.length;
-    const FRETS = 12;
-    const fbW = Math.min(340, W * 0.42) * sc, fbH = (6 + nStr * 13) * sc;
+    // Was a flat 12 (bug: a chord up the neck drew its dot off the edge of
+    // the panel). Briefly sized to whatever the *current* chord needed —
+    // by request ("хочу полностью видеть" — I want to see it in full), now
+    // always the instrument's own full fret count instead, so the whole
+    // neck is there regardless of which chord happens to be showing at the
+    // moment, not just the frets a low-fret song ever touches. `fbW` grows
+    // to match, roughly keeping each fret the same width rather than
+    // cramming more of them into the old fixed panel — still bounded by
+    // `W * 0.42`, so a genuinely long neck compresses gracefully instead of
+    // overflowing.
+    const FRETS = inst.frets || 12;
+    const fbW = Math.min(340 * (FRETS / 12), W * 0.42) * sc, fbH = (6 + nStr * 13) * sc;
     const x0 = 22, y0 = H - fbH - 44 * sc;
     const nutX = x0 + 22 * sc, cell = (fbW - 30 * sc) / FRETS;
     c.fillStyle = "rgba(0,0,0,0.55)";
@@ -652,8 +668,27 @@ export default async function play(ctx) {
       c.lineWidth = f === 0 ? 3 : 1;
       c.beginPath(); c.moveTo(x, sy(nStr - 1) - 5 * sc); c.lineTo(x, sy(0) + 5 * sc); c.stroke();
     }
+    // Real fretboard inlay dots, drawn on the neck itself (between the
+    // strings) — separate from the numeric labels below and from the
+    // played-note dots. Standard positions and the 12th's double dot.
+    const inlayY = (sy(0) + sy(nStr - 1)) / 2;
+    c.fillStyle = "rgba(255,255,255,0.28)";
+    for (const f of FRET_MARKERS) {
+      if (f > FRETS) break;
+      const x = nutX + (f - 0.5) * cell;
+      const r = 2.2 * sc;
+      if (f === 12) {
+        c.beginPath(); c.arc(x, inlayY - 5 * sc, r, 0, 7); c.fill();
+        c.beginPath(); c.arc(x, inlayY + 5 * sc, r, 0, 7); c.fill();
+      } else {
+        c.beginPath(); c.arc(x, inlayY, r, 0, 7); c.fill();
+      }
+    }
     c.fillStyle = getVar("--muted"); c.font = `${Math.round(9 * sc)}px var(--mono)`;
-    for (const f of [3, 5, 7, 9, 12]) c.fillText(String(f + capo), nutX + (f - 0.5) * cell - 3, sy(0) + 14 * sc);
+    for (const f of FRET_MARKERS) {
+      if (f > FRETS) break;
+      c.fillText(String(f + capo), nutX + (f - 0.5) * cell - 3, sy(0) + 14 * sc);
+    }
     const col = now ? getVar("--accent") : "rgba(255,255,255,0.75)";
     for (const pos of cur.frets) {
       if (!pos) continue;                        // note unreachable on this instrument
